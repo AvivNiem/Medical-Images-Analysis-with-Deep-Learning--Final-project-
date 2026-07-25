@@ -50,10 +50,12 @@ class TrainConfig:
     image_size: int = 128
     batch_size: int = 8
     max_epochs: int = 60
-    lr: float = 5e-4
+    lr: float = 3e-4
     weight_decay: float = 1e-5
     grad_clip: float = 1.0            # max gradient norm; guards against divergence
-    loss_name: str = "bce_dice"       # 'bce_dice' (stable) or 'dice' (paper's pure Dice)
+    loss_name: str = "dice_focal"     # Dice + focal: stable & imbalance-robust. Pure
+                                      #   'dice' can collapse to all-background early on
+                                      #   tiny 2D foreground; plain BCE collapses worse.
     patience: int = 12                # early-stopping patience (epochs w/o val improvement)
     num_workers: int = 2
     out_dir: str = "./results"
