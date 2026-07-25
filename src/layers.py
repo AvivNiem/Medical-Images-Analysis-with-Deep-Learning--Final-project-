@@ -108,6 +108,16 @@ class SpatialAttentionGate2D(nn.Module):
         self.phi = nn.Conv2d(g_channels, inter_channels, kernel_size=1, bias=True)
         self.psi = nn.Conv2d(inter_channels, 1, kernel_size=1, bias=True)
 
+        # Initialise the gate to start OPEN (pass-through), as the original paper
+        # does: "Gating parameters are initialised so that attention gates pass
+        # through feature vectors at all spatial locations." We push psi's output
+        # strongly positive at init so sigmoid(psi) ~ 1 everywhere, i.e. alpha ~ 1.
+        # Without this, the gate can start half-closed and strangle the skip
+        # connection early in training, causing divergence to an all-background
+        # prediction (observed empirically for the gated variants).
+        nn.init.zeros_(self.psi.weight)
+        nn.init.constant_(self.psi.bias, 3.0)  # sigmoid(3) ~ 0.95
+
     def forward(self, x: torch.Tensor, g: torch.Tensor) -> torch.Tensor:
         theta_x = self.theta(x)
         phi_g = F.interpolate(self.phi(g), size=theta_x.shape[-2:], mode="bilinear", align_corners=False)
@@ -138,6 +148,12 @@ class ContextGatedChannelGate(nn.Module):
         self.fc_x = nn.Linear(x_channels, hidden, bias=False)
         self.fc_g = nn.Linear(g_channels, hidden, bias=True)
         self.fc_out = nn.Linear(hidden, x_channels, bias=True)
+
+        # Same pass-through initialisation rationale as the spatial gate: start
+        # with beta ~ 1 for every channel so the channel gate does not suppress
+        # useful features before it has learned anything.
+        nn.init.zeros_(self.fc_out.weight)
+        nn.init.constant_(self.fc_out.bias, 3.0)  # sigmoid(3) ~ 0.95
 
     def forward(self, x: torch.Tensor, g: torch.Tensor) -> torch.Tensor:
         gap_x = F.adaptive_avg_pool2d(x, 1).flatten(1)   # (B, Cx)

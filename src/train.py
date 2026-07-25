@@ -50,9 +50,10 @@ class TrainConfig:
     image_size: int = 128
     batch_size: int = 8
     max_epochs: int = 60
-    lr: float = 1e-3
+    lr: float = 5e-4
     weight_decay: float = 1e-5
-    loss_name: str = "dice"           # 'dice' (paper) or 'bce_dice'
+    grad_clip: float = 1.0            # max gradient norm; guards against divergence
+    loss_name: str = "bce_dice"       # 'bce_dice' (stable) or 'dice' (paper's pure Dice)
     patience: int = 12                # early-stopping patience (epochs w/o val improvement)
     num_workers: int = 2
     out_dir: str = "./results"
@@ -136,6 +137,8 @@ def train_one_model(attention_type: Optional[str], cfg: TrainConfig, seed: int,
             optimizer.zero_grad()
             loss = criterion(model(img), msk)
             loss.backward()
+            if cfg.grad_clip is not None and cfg.grad_clip > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip)
             optimizer.step()
             epoch_losses.append(loss.item())
 
