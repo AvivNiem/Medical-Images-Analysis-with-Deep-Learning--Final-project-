@@ -69,6 +69,47 @@ def plot_training_curves(results: Dict, save_path: Optional[str] = None):
     return fig
 
 
+def plot_low_data_curve(sweep_agg: Dict, save_path: Optional[str] = None):
+    """Plot test Dice vs. training-set size, one line per variant - the central
+    figure of the low-data-regime experiment. `sweep_agg` is the output of
+    stats.aggregate_sweep(). A growing gap between our 'hybrid' and the baselines
+    as training size shrinks is the hypothesised result."""
+    summary = sweep_agg["summary"]
+    sizes = sweep_agg["train_sizes"]
+    # x positions: map 'all' to the largest numeric size + a step, for plotting.
+    numeric = [s for s in sizes if s != "all"]
+    x_all = (max(numeric) if numeric else 0)
+    def xval(s):
+        return x_all if s == "all" else s
+
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    order = ["None", "spatial", "cbam", "hybrid"]
+    for att in order:
+        if att not in summary:
+            continue
+        xs, ys, es = [], [], []
+        for s in sizes:
+            if s in summary[att]:
+                xs.append(xval(s))
+                ys.append(summary[att][s]["dice_mean"])
+                es.append(summary[att][s]["dice_std"])
+        ax.errorbar(xs, ys, yerr=es, marker="o", capsize=3,
+                    label=VARIANT_LABELS.get(att, att))
+
+    ax.set_xlabel("Number of training patients")
+    ax.set_ylabel("Test Dice")
+    ax.set_title("Low-data regime: Dice vs. training-set size (mean ± std over seeds)")
+    xticks = [xval(s) for s in sizes]
+    ax.set_xticks(xticks)
+    ax.set_xticklabels([("all" if s == "all" else str(s)) for s in sizes])
+    ax.legend()
+    ax.grid(alpha=0.3)
+    fig.tight_layout()
+    if save_path:
+        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+    return fig
+
+
 @torch.no_grad()
 def plot_prediction_overlay(models: Dict[str, "torch.nn.Module"], img: "torch.Tensor",
                             mask: "torch.Tensor", device, save_path: Optional[str] = None):

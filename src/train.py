@@ -61,6 +61,8 @@ class TrainConfig:
     out_dir: str = "./results"
     val_frac: float = 0.15
     test_frac: float = 0.2
+    train_size: Optional[int] = None  # if set, subsample this many training PATIENTS
+                                      #   (for the low-data-regime sweep). None = all.
 
 
 def set_seed(seed: int):
@@ -85,6 +87,15 @@ def _make_loaders(cfg: TrainConfig, seed: int):
     slice_dir = Path(cfg.slice_dir)
     train_ids, val_ids, test_ids = patient_level_split(
         slice_dir, val_frac=cfg.val_frac, test_frac=cfg.test_frac, seed=1234)
+
+    # Low-data-regime subsampling: keep only `train_size` training patients.
+    # The subset is seeded by the model seed so different seeds see different
+    # subsets (giving meaningful variance), but within a seed ALL variants see the
+    # SAME subset - so the comparison at each training size is fair. The val/test
+    # splits are untouched, so every training size is evaluated on the same test set.
+    if cfg.train_size is not None and cfg.train_size < len(train_ids):
+        subset_rng = random.Random(1000 + seed)
+        train_ids = subset_rng.sample(train_ids, cfg.train_size)
 
     train_ds = SpleenSliceDataset(slice_dir, train_ids, augment=True)
     val_ds = SpleenSliceDataset(slice_dir, val_ids, augment=False)
@@ -172,6 +183,7 @@ def train_one_model(attention_type: Optional[str], cfg: TrainConfig, seed: int,
     return {
         "attention_type": str(attention_type),
         "seed": seed,
+        "train_size": cfg.train_size,   # None = full training set
         "best_val_dice": best_val,
         "test_metrics": test_metrics,
         "num_params": count_parameters(model),
@@ -218,26 +230,97 @@ def run_experiment(cfg: TrainConfig) -> Dict:
     out_dir = Path(cfg.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    weights_dir = out_dir / "weights"
+    weights_dir.mkdir(parents=True, exist_ok=True)
+
     all_runs = []
     for att in cfg.attention_types:
         for seed in cfg.seeds:
             print(f"=== Training attention_type={att} seed={seed} ===")
-            result = train_one_model(att, cfg, seed)
-            # Don't serialize raw weights into the summary JSON (large); keep them
-            # only if you plan to reload for visualization.
-            serializable = {k: v for k, v in result.items() if k != "best_state"}
-            all_runs.append(serializable)
-
-            row = result["test_metrics"]
-            print(f"  -> test DSC {row['dice_mean']:.3f}+/-{row['dice_std']:.3f} "
-                  f"prec {row['precision_mean']:.3f} rec {row['recall_mean']:.3f} "
-                  f"params {result['num_params']:,}")
+            all_runs.append(_train_and_save(att, cfg, seed, weights_dir))
 
     results = {"config": asdict(cfg), "runs": all_runs}
     with open(out_dir / "results.json", "w") as f:
         json.dump(results, f, indent=2)
     print(f"\nSaved results to {out_dir / 'results.json'}")
+    print(f"Saved model weights to {weights_dir}/")
     return results
+
+
+def _train_and_save(att, cfg: TrainConfig, seed: int, weights_dir: Path) -> Dict:
+    """Train one (variant, seed[, train_size]) run, persist its best checkpoint to
+    disk, and return a JSON-serializable run dict (weights replaced by a path).
+    Shared by run_experiment and run_low_data_sweep."""
+    result = train_one_model(att, cfg, seed)
+
+    # Checkpoint filename encodes variant + seed + training size so the low-data
+    # sweep's many runs don't overwrite one another.
+    tag = f"{att}_seed{seed}_n{cfg.train_size if cfg.train_size is not None else 'all'}"
+    ckpt_path = weights_dir / f"{tag}.pt"
+    torch.save(result["best_state"], ckpt_path)
+
+    serializable = {k: v for k, v in result.items() if k != "best_state"}
+    serializable["weights_path"] = str(ckpt_path)
+
+    row = result["test_metrics"]
+    print(f"  -> test DSC {row['dice_mean']:.3f}+/-{row['dice_std']:.3f} "
+          f"prec {row['precision_mean']:.3f} rec {row['recall_mean']:.3f} "
+          f"params {result['num_params']:,}")
+    return serializable
+
+
+def run_low_data_sweep(cfg: TrainConfig, train_sizes: List[Optional[int]]) -> Dict:
+    """Low-data-regime experiment: train every (variant x seed) at each training
+    set size in `train_sizes` (a value of None means the full training set). This
+    reproduces the original paper's key analysis - whether attention's benefit
+    grows as training data shrinks - and is where our context-gated channel gate
+    is hypothesised to help most.
+
+    Saves everything to results/sweep_results.json and returns the results dict.
+    """
+    from dataclasses import replace
+
+    out_dir = Path(cfg.out_dir)
+    weights_dir = out_dir / "weights"
+    weights_dir.mkdir(parents=True, exist_ok=True)
+
+    all_runs = []
+    for ts in train_sizes:
+        cfg_ts = replace(cfg, train_size=ts)
+        label = ts if ts is not None else "all"
+        for att in cfg.attention_types:
+            for seed in cfg.seeds:
+                print(f"=== train_size={label}  attention_type={att}  seed={seed} ===")
+                all_runs.append(_train_and_save(att, cfg_ts, seed, weights_dir))
+
+    results = {"config": asdict(cfg), "train_sizes": train_sizes, "runs": all_runs}
+    with open(out_dir / "sweep_results.json", "w") as f:
+        json.dump(results, f, indent=2)
+    print(f"\nSaved sweep results to {out_dir / 'sweep_results.json'}")
+    return results
+
+
+def load_trained_model(results: Dict, attention_type, seed: int, cfg: TrainConfig,
+                        device=None, train_size=None):
+    """Reload a trained model saved by run_experiment / run_low_data_sweep (matched
+    by variant + seed + training size), so downstream cells don't have to retrain.
+    Returns the model in eval mode."""
+    device = device or get_device()
+    att_str = str(attention_type)
+    ckpt = None
+    for run in results["runs"]:
+        if (run["attention_type"] == att_str and run["seed"] == seed
+                and run.get("train_size", None) == train_size):
+            ckpt = run.get("weights_path")
+            break
+    if ckpt is None:
+        raise ValueError(f"No saved weights for attention_type={att_str}, "
+                         f"seed={seed}, train_size={train_size}")
+
+    model = build_model(attention_type, base_channels=cfg.base_channels).to(device)
+    model.load_state_dict(torch.load(ckpt, map_location=device))
+    model.eval()
+    return model
 
 
 if __name__ == "__main__":
