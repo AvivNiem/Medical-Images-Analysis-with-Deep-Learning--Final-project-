@@ -1,12 +1,19 @@
-# --- Project data & generated outputs (do not commit) ---
+# --- Project data & large outputs (do not commit) ---
 decathlon_data/
-slices_2d/
-results/
+slices_2d*/
+results/weights/          # ~GB of model checkpoints — never commit
 *.npy
 *.nii
 *.nii.gz
 *.pth
 *.pt
+
+# Keep the small, valuable result artifacts (json, figures, summary) tracked:
+# results/*.json, results/*.png, results/results_summary.md are committed.
+
+# --- Temporary report preview images (not part of the deliverable) ---
+report/page*.png
+report/_check*.png
 
 # --- Python ---
 __pycache__/
