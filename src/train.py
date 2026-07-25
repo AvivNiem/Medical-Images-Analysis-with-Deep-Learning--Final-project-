@@ -237,7 +237,7 @@ def run_experiment(cfg: TrainConfig) -> Dict:
     for att in cfg.attention_types:
         for seed in cfg.seeds:
             print(f"=== Training attention_type={att} seed={seed} ===")
-            all_runs.append(_train_and_save(att, cfg, seed, weights_dir))
+            all_runs.append(_train_and_save(att, cfg, seed, weights_dir, prefix="main_"))
 
     results = {"config": asdict(cfg), "runs": all_runs}
     with open(out_dir / "results.json", "w") as f:
@@ -247,15 +247,18 @@ def run_experiment(cfg: TrainConfig) -> Dict:
     return results
 
 
-def _train_and_save(att, cfg: TrainConfig, seed: int, weights_dir: Path) -> Dict:
+def _train_and_save(att, cfg: TrainConfig, seed: int, weights_dir: Path,
+                    prefix: str = "") -> Dict:
     """Train one (variant, seed[, train_size]) run, persist its best checkpoint to
     disk, and return a JSON-serializable run dict (weights replaced by a path).
-    Shared by run_experiment and run_low_data_sweep."""
+    Shared by run_experiment and run_low_data_sweep. `prefix` keeps the main run's
+    checkpoints distinct from the sweep's (otherwise the sweep's full-data run would
+    overwrite the main run's identically-named file)."""
     result = train_one_model(att, cfg, seed)
 
-    # Checkpoint filename encodes variant + seed + training size so the low-data
-    # sweep's many runs don't overwrite one another.
-    tag = f"{att}_seed{seed}_n{cfg.train_size if cfg.train_size is not None else 'all'}"
+    # Checkpoint filename encodes prefix + variant + seed + training size so neither
+    # the low-data sweep's many runs nor the main run overwrite one another.
+    tag = f"{prefix}{att}_seed{seed}_n{cfg.train_size if cfg.train_size is not None else 'all'}"
     ckpt_path = weights_dir / f"{tag}.pt"
     torch.save(result["best_state"], ckpt_path)
 

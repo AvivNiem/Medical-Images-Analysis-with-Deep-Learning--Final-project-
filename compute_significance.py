@@ -21,7 +21,7 @@ from scipy.stats import wilcoxon
 
 from src.data import patient_level_split, SpleenSliceDataset
 from src.train import TrainConfig, get_device, load_trained_model
-from src.metrics import dice_score
+from src.metrics import dice_score, precision_recall
 
 VARIANTS = [None, "spatial", "cbam", "hybrid"]
 NAMES = {"None": "U-Net", "spatial": "Attention U-Net", "cbam": "AG+CBAM", "hybrid": "Hybrid(ours)"}
@@ -50,24 +50,30 @@ def main():
     print(f"{len(fg_idx)} foreground test slices x {len(seeds)} seeds "
           f"= {len(fg_idx) * len(seeds)} paired samples per comparison")
 
-    # Per-slice Dice pooled across all seeds, aligned by (seed, slice) so the
-    # comparison between any two variants is properly paired.
+    # Per-slice Dice / precision / recall pooled across all seeds, aligned by
+    # (seed, slice) so the comparison between any two variants is properly paired.
     per_slice = {str(a): [] for a in VARIANTS}
+    prec = {str(a): [] for a in VARIANTS}
+    rec = {str(a): [] for a in VARIANTS}
     for seed in seeds:
         for att in VARIANTS:
             model = load_trained_model(results, att, seed, cfg, device)
             with torch.no_grad():
                 for i in fg_idx:
                     im, mk = test_ds[i]
-                    per_slice[str(att)].append(
-                        dice_score(model(im.unsqueeze(0).to(device)),
-                                   mk.unsqueeze(0).to(device)).item())
+                    logits = model(im.unsqueeze(0).to(device))
+                    tgt = mk.unsqueeze(0).to(device)
+                    per_slice[str(att)].append(dice_score(logits, tgt).item())
+                    p, r = precision_recall(logits, tgt)
+                    prec[str(att)].append(p.item())
+                    rec[str(att)].append(r.item())
 
-    # Mean per variant
-    print("\nMean per-slice Dice (pooled over seeds):")
+    # Mean per variant (Dice / precision / recall), all from the same weights
+    print("\nPooled per-slice metrics (mean over all seeds x foreground slices):")
+    print(f"  {'Variant':16s} {'Dice':>8s} {'Prec':>8s} {'Rec':>8s}")
     for a in VARIANTS:
-        v = np.array(per_slice[str(a)])
-        print(f"  {NAMES[str(a)]:16s} {v.mean():.4f}")
+        s = str(a)
+        print(f"  {NAMES[s]:16s} {np.mean(per_slice[s]):8.4f} {np.mean(prec[s]):8.4f} {np.mean(rec[s]):8.4f}")
 
     # Pairwise paired Wilcoxon
     print("\nPairwise paired Wilcoxon signed-rank (median diff A-B, p-value):")
