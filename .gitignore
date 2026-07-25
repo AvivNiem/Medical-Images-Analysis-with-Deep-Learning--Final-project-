@@ -1,0 +1,29 @@
+# --- Project data & generated outputs (do not commit) ---
+decathlon_data/
+slices_2d/
+results/
+*.npy
+*.nii
+*.nii.gz
+*.pth
+*.pt
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# --- Jupyter / Colab ---
+.ipynb_checkpoints/
+
+# --- OS / editor ---
+.DS_Store
+.idea/
+.vscode/
