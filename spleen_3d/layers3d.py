@@ -29,27 +29,34 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+# InstanceNorm is used instead of BatchNorm because 3D training uses very small
+# batches (a few patches). BatchNorm's running statistics are then unreliable and
+# mismatch between train and eval, causing erratic validation performance;
+# InstanceNorm normalises each sample/channel independently, is batch-size
+# agnostic, and behaves identically in train and eval — the standard choice for
+# small-batch 3D medical segmentation (e.g. nnU-Net).
+def _norm3d(num_features):
+    return nn.InstanceNorm3d(num_features, affine=True)
+
+
 def _init_kaiming(module):
     for m in module.modules():
         if isinstance(m, (nn.Conv3d, nn.Linear)):
             nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
             if m.bias is not None:
                 nn.init.zeros_(m.bias)
-        elif isinstance(m, nn.BatchNorm3d):
-            nn.init.ones_(m.weight)
-            nn.init.zeros_(m.bias)
 
 
 class ConvBlock3D(nn.Module):
-    """Two (Conv3x3x3 -> BN -> ReLU) layers — the basic 3D U-Net feature block."""
+    """Two (Conv3x3x3 -> InstanceNorm -> ReLU) layers — the basic 3D U-Net block."""
 
     def __init__(self, in_ch, out_ch):
         super().__init__()
         self.block = nn.Sequential(
             nn.Conv3d(in_ch, out_ch, 3, padding=1, bias=False),
-            nn.BatchNorm3d(out_ch), nn.ReLU(inplace=True),
+            _norm3d(out_ch), nn.ReLU(inplace=True),
             nn.Conv3d(out_ch, out_ch, 3, padding=1, bias=False),
-            nn.BatchNorm3d(out_ch), nn.ReLU(inplace=True),
+            _norm3d(out_ch), nn.ReLU(inplace=True),
         )
 
     def forward(self, x):
@@ -104,7 +111,7 @@ class GridAttentionGate3D(nn.Module):
         self.theta = nn.Conv3d(in_ch, inter_ch, kernel_size=sub_sample, stride=sub_sample, bias=False)
         self.phi = nn.Conv3d(gating_ch, inter_ch, kernel_size=1, bias=True)
         self.psi = nn.Conv3d(inter_ch, 1, kernel_size=1, bias=True)
-        self.W = nn.Sequential(nn.Conv3d(in_ch, in_ch, 1), nn.BatchNorm3d(in_ch))
+        self.W = nn.Sequential(nn.Conv3d(in_ch, in_ch, 1), _norm3d(in_ch))
         _init_kaiming(self)
 
     def forward(self, x, g):

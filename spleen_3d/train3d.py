@@ -38,9 +38,10 @@ class Cfg3D:
     batch_size: int = 2
     max_epochs: int = 200
     val_interval: int = 5
-    lr: float = 1e-3
+    lr: float = 3e-4             # lowered for stable 3D training
     weight_decay: float = 1e-5
-    patience: int = 8            # early stop measured in validation checks
+    patience: int = 10           # early stop measured in validation checks
+    lr_patience: int = 3         # ReduceLROnPlateau patience (in validation checks)
     deep_supervision: bool = True
     dsv_weight: float = 0.5      # weight on each auxiliary deep-supervision loss
     num_workers: int = 4
@@ -96,6 +97,8 @@ def train_one_fold(attention_type, fold, dicts, cfg: Cfg3D, device, weights_dir:
     model = build_model3d(attention_type, base=cfg.base,
                           deep_supervision=cfg.deep_supervision).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        opt, mode="max", factor=0.5, patience=cfg.lr_patience)
     loss_fn = dice_loss_fn()
 
     best_dice, best_state, no_improve = -1.0, None, 0
@@ -114,9 +117,11 @@ def train_one_fold(attention_type, fold, dicts, cfg: Cfg3D, device, weights_dir:
 
         if (epoch + 1) % cfg.val_interval == 0:
             vd, vp, vr, _ = volume_dice(model, val_loader, device)
+            scheduler.step(vd)
             history.append({"epoch": epoch, "val_dice": vd, "val_prec": vp, "val_rec": vr})
             print(f"  [{str(attention_type):8s} fold{fold}] epoch {epoch+1:3d} "
-                  f"val_dice={vd:.4f} best={max(best_dice, vd):.4f}")
+                  f"val_dice={vd:.4f} best={max(best_dice, vd):.4f} "
+                  f"lr={opt.param_groups[0]['lr']:.1e}")
             if vd > best_dice:
                 best_dice, best_state, no_improve = vd, copy.deepcopy(model.state_dict()), 0
             else:
