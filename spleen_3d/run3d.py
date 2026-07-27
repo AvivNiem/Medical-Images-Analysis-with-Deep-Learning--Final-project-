@@ -36,7 +36,26 @@ def main():
     ap.add_argument("--task-dir", default="./decathlon_data/Task09_Spleen")
     ap.add_argument("--out-dir", default="./results_3d")
     ap.add_argument("--quick", action="store_true", help="tiny smoke test")
+    ap.add_argument("--debug1", action="store_true",
+                    help="train ONE variant/fold to convergence (cheap sanity of the recipe)")
     args = ap.parse_args()
+
+    if args.debug1:
+        # Full-size single run (baseline U-Net, fold 0) to confirm the recipe now
+        # converges to a good spleen Dice (~0.9) before launching all 20 runs.
+        from pathlib import Path
+        from .data3d import get_data_dicts
+        from .train3d import train_one_fold
+        shape_check(base=16)
+        cfg = Cfg3D(task_dir=args.task_dir, out_dir=args.out_dir, base=16,
+                    max_epochs=150, val_interval=3, patience=15,
+                    attention_types=[None])
+        device = get_device()
+        wd = Path(cfg.out_dir) / "weights"; wd.mkdir(parents=True, exist_ok=True)
+        dicts = get_data_dicts(cfg.task_dir)
+        r = train_one_fold(None, 0, dicts, cfg, device, wd)
+        print(f"\nDEBUG1 result: None fold0 best Dice {r['val_dice']:.4f}")
+        return
 
     if args.quick:
         # Tiny end-to-end check: fold 0 of two variants, small net, few epochs.

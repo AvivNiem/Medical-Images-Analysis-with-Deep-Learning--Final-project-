@@ -25,8 +25,10 @@ from typing import List, Dict, Tuple
 
 import numpy as np
 
-# HU soft-tissue window (same rationale as the 2D pipeline)
-HU_MIN, HU_MAX = -125, 275
+# Spleen-specific abdominal CT window (the values used in MONAI's spleen
+# segmentation benchmark, which reaches ~0.95 Dice). A tight window around the
+# soft-tissue range gives the spleen much better contrast than a wide window.
+HU_MIN, HU_MAX = -57, 164
 PATCH = (96, 96, 96)
 SPACING = (1.5, 1.5, 1.5)
 

@@ -37,13 +37,12 @@ class Cfg3D:
     base: int = 16
     batch_size: int = 2
     max_epochs: int = 200
-    val_interval: int = 5
-    lr: float = 3e-4             # lowered for stable 3D training
+    val_interval: int = 3
+    lr: float = 1e-3             # InstanceNorm stabilises eval, so we can train at 1e-3
     weight_decay: float = 1e-5
-    patience: int = 10           # early stop measured in validation checks
-    lr_patience: int = 3         # ReduceLROnPlateau patience (in validation checks)
+    patience: int = 15           # early stop measured in validation checks
     deep_supervision: bool = True
-    dsv_weight: float = 0.5      # weight on each auxiliary deep-supervision loss
+    dsv_weight: float = 0.5      # base weight; deeper (coarser) heads down-weighted
     num_workers: int = 4
 
 
@@ -57,10 +56,14 @@ def dice_loss_fn():
 
 
 def _total_loss(main, aux, target, loss_fn, dsv_w):
-    """Deep-supervision loss: main + dsv_w * sum(aux)."""
+    """Deep-supervision loss: main + decreasing weights on the auxiliary heads.
+    `aux` is ordered coarsest->finest; coarser heads get smaller weights (a coarse,
+    upsampled prediction should not dominate the fine-scale objective)."""
     loss = loss_fn(main, target)
-    for a in aux:
-        loss = loss + dsv_w * loss_fn(a, target)
+    n = len(aux)
+    for i, a in enumerate(aux):
+        w = dsv_w * (0.5 ** (n - 1 - i))   # e.g. n=3 -> [0.125, 0.25, 0.5]*dsv_w
+        loss = loss + w * loss_fn(a, target)
     return loss
 
 
@@ -97,8 +100,7 @@ def train_one_fold(attention_type, fold, dicts, cfg: Cfg3D, device, weights_dir:
     model = build_model3d(attention_type, base=cfg.base,
                           deep_supervision=cfg.deep_supervision).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        opt, mode="max", factor=0.5, patience=cfg.lr_patience)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=cfg.max_epochs)
     loss_fn = dice_loss_fn()
 
     best_dice, best_state, no_improve = -1.0, None, 0
@@ -114,10 +116,10 @@ def train_one_fold(attention_type, fold, dicts, cfg: Cfg3D, device, weights_dir:
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             opt.step()
+        scheduler.step()  # cosine annealing, once per epoch
 
         if (epoch + 1) % cfg.val_interval == 0:
             vd, vp, vr, _ = volume_dice(model, val_loader, device)
-            scheduler.step(vd)
             history.append({"epoch": epoch, "val_dice": vd, "val_prec": vp, "val_rec": vr})
             print(f"  [{str(attention_type):8s} fold{fold}] epoch {epoch+1:3d} "
                   f"val_dice={vd:.4f} best={max(best_dice, vd):.4f} "
