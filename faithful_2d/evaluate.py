@@ -114,7 +114,9 @@ def main():
     # ---- Box plot of per-fold Dice ----
     fig, ax = plt.subplots(figsize=(7, 4.5))
     data = [per_fold_dice[str(a)] for a in VARIANTS]
-    ax.boxplot(data, labels=[NAMES[str(a)] for a in VARIANTS], showmeans=True)
+    ax.boxplot(data, showmeans=True)   # version-robust: set labels separately below
+    ax.set_xticks(range(1, len(VARIANTS) + 1))
+    ax.set_xticklabels([NAMES[str(a)] for a in VARIANTS])
     ax.set_ylabel("Per-fold test Dice"); ax.set_title("Faithful 2D reproduction — 5-fold CV")
     ax.grid(alpha=0.3, axis="y"); fig.tight_layout()
     fig.savefig(out_dir / "fig_kfold_box.png", dpi=150, bbox_inches="tight")
