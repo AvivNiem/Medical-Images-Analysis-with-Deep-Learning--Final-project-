@@ -25,7 +25,7 @@ from torch.utils.data import DataLoader
 
 from src.losses import build_loss
 from src.metrics import MetricAccumulator, dice_score
-from src.train import set_seed, get_device
+from .utils import set_seed, get_device
 from .model import build_faithful_model, count_parameters
 from .data import FaithfulSpleenDataset, list_patients
 

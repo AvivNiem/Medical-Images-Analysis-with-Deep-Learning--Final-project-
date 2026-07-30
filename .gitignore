@@ -1,36 +1,57 @@
-# --- Project data & large outputs (do not commit) ---
+# ============================================================================
+# Submission = the faithful 2D spleen study (4 models on full data + low-data)
+# Everything below is kept on disk locally but NOT tracked in git.
+# ============================================================================
+
+# --- Data & large model outputs (never commit) ---
 decathlon_data/
 slices_2d*/
-results/weights/          # ~GB of model checkpoints — never commit
+results/weights/
+results_faithful2d/weights/
+results_pancreas/
+results_lowdata/
 *.npy
 *.nii
 *.nii.gz
 *.pth
 *.pt
 
-# Keep the small, valuable result artifacts (json, figures, summary) tracked:
-# results/*.json, results/*.png, results/results_summary.md are committed.
+# --- Not part of the final deliverable: 3D experiments (kept locally) ---
+spleen_3d/
 
-# --- Temporary report preview images (not part of the deliverable) ---
-report/page*.png
-report/_check*.png
+# --- Not part of the final deliverable: initial single-split proof-of-concept ---
+results/
+run_all.py
+compute_significance.py
+make_sample_grid.py
+notebooks/main_colab.ipynb
+src/models.py
+src/train.py
+src/stats.py
+src/visualize.py
+src/kfold2d.py
 
-# --- Python ---
+# --- Not part of the final deliverable: pancreas experiment (dropped) ---
+faithful_2d/prep_dataset.py
+
+# --- Superseded report drafts (final = final_report_v2.*) ---
+report/final_report.docx
+report/final_report.pdf
+report/make_report.py
+report/make_report_docx.py
+
+# --- Build / render artifacts & temp files ---
+_build_nb.py
+report/pg-*.jpg
+report/*.tmp
+report/.~lock*
+report/~$*
+
+# --- Python / OS / editor ---
 __pycache__/
 *.py[cod]
 *$py.class
-*.egg-info/
-.eggs/
-build/
-dist/
-.venv/
-venv/
-env/
-
-# --- Jupyter / Colab ---
 .ipynb_checkpoints/
-
-# --- OS / editor ---
 .DS_Store
 .idea/
 .vscode/

@@ -27,7 +27,7 @@ import matplotlib.pyplot as plt
 from scipy.stats import wilcoxon
 
 from src.metrics import dice_score, precision_recall
-from src.train import get_device
+from .utils import get_device
 from .model import build_faithful_model
 from .data import FaithfulSpleenDataset, list_patients
 

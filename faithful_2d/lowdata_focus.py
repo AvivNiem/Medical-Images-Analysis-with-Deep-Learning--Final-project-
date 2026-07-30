@@ -26,8 +26,8 @@ import torch
 from scipy.stats import wilcoxon
 
 from src.losses import build_loss
-from src.metrics import dice_score
-from src.train import set_seed, get_device
+from src.metrics import dice_score, precision_recall
+from .utils import set_seed, get_device
 from .model import build_faithful_model
 from .data import FaithfulSpleenDataset, list_patients
 from .train import FaithfulKFoldConfig, _loaders, _val_dice, _dsv_loss
@@ -63,13 +63,16 @@ def train_and_perslice(att, cfg, train_ids, val_ids, test_ids, device, seed, fg_
                 break
     model.load_state_dict(best_state)
     model.eval()
-    per = []
+    per_d, per_p, per_r = [], [], []
     with torch.no_grad():
         for i in fg_idx:
             img, msk = test_ds[i]
-            per.append(dice_score(model(img.unsqueeze(0).to(device))[0],
-                                  msk.unsqueeze(0).to(device)).item())
-    return per
+            logits = model(img.unsqueeze(0).to(device))[0]
+            tgt = msk.unsqueeze(0).to(device)
+            per_d.append(dice_score(logits, tgt).item())
+            p, r = precision_recall(logits, tgt)
+            per_p.append(p.item()); per_r.append(r.item())
+    return per_d, per_p, per_r
 
 
 def main():
@@ -98,17 +101,21 @@ def main():
           f"-> {args.n_seeds * len(fg_idx)} paired samples/comparison")
 
     per_slice = {str(a): [] for a in VARIANTS}
+    prec = {str(a): [] for a in VARIANTS}
+    rec = {str(a): [] for a in VARIANTS}
     for seed in range(args.n_seeds):
         subset = random.Random(1000 + seed).sample(pool, min(args.size, len(pool)))
         for att in VARIANTS:
-            per = train_and_perslice(att, cfg, subset, val_ids, test_ids, device, seed, fg_idx, test_ds)
-            per_slice[str(att)].extend(per)
-            print(f"  seed{seed} {str(att):8s} mean Dice {np.mean(per):.4f}")
-        json.dump(per_slice, open(out / "perslice.json", "w"))
+            pd, pp, pr = train_and_perslice(att, cfg, subset, val_ids, test_ids, device, seed, fg_idx, test_ds)
+            per_slice[str(att)].extend(pd); prec[str(att)].extend(pp); rec[str(att)].extend(pr)
+            print(f"  seed{seed} {str(att):8s} Dice {np.mean(pd):.4f}  Prec {np.mean(pp):.4f}  Rec {np.mean(pr):.4f}")
+        json.dump({"dice": per_slice, "precision": prec, "recall": rec}, open(out / "perslice.json", "w"))
 
-    print(f"\n===== n={args.size}: mean Dice over {args.n_seeds} seeds x slices =====")
+    print(f"\n===== n={args.size}: mean over {args.n_seeds} seeds x slices =====")
+    print(f"  {'Variant':16s} {'Dice':>8s} {'Prec':>8s} {'Rec':>8s}")
     for a in VARIANTS:
-        print(f"  {NAMES[str(a)]:16s} {np.mean(per_slice[str(a)]):.4f}")
+        s = str(a)
+        print(f"  {NAMES[s]:16s} {np.mean(per_slice[s]):8.4f} {np.mean(prec[s]):8.4f} {np.mean(rec[s]):8.4f}")
 
     print("\nPairwise paired Wilcoxon (median A-B, p) — focus: vs Attention U-Net (paper):")
     for a, b in combinations([str(x) for x in VARIANTS], 2):

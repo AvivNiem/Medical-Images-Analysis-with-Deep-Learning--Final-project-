@@ -28,7 +28,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from src.losses import build_loss
-from src.train import set_seed, get_device
+from .utils import set_seed, get_device
 from .model import build_faithful_model, count_parameters
 from .data import list_patients
 from .train import FaithfulKFoldConfig, _loaders, _val_dice, _evaluate, _dsv_loss

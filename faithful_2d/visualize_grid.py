@@ -27,7 +27,7 @@ import matplotlib.pyplot as plt
 
 from src.losses import build_loss
 from src.metrics import dice_score
-from src.train import set_seed, get_device
+from .utils import set_seed, get_device
 from .model import build_faithful_model
 from .data import FaithfulSpleenDataset, list_patients
 from .train import FaithfulKFoldConfig, _loaders, _val_dice, _dsv_loss
